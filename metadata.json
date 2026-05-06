@@ -1,0 +1,6 @@
+{
+  "name": "Nexus AI Engine",
+  "description": "A web-based 2D game engine where you can use an AI agent to build games.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

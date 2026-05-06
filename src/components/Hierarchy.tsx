@@ -119,6 +119,29 @@ export function Hierarchy() {
                     className="w-full"
                   />
                 </div>
+                <div>
+                  <span className="text-xs text-zinc-500 block mb-1">Direction (X,Y,Z)</span>
+                  <div className="grid grid-cols-3 gap-1">
+                    <input 
+                      type="number" step="0.5"
+                      value={scene.config.directionalLightPosition?.x ?? 10}
+                      onChange={e => useStore.getState().updateSceneConfig({ directionalLightPosition: { ...scene.config.directionalLightPosition, x: parseFloat(e.target.value) } })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-1 py-1 text-xs font-mono focus:outline-none focus:border-zinc-600 disabled:opacity-50"
+                    />
+                    <input 
+                      type="number" step="0.5"
+                      value={scene.config.directionalLightPosition?.y ?? 20}
+                      onChange={e => useStore.getState().updateSceneConfig({ directionalLightPosition: { ...scene.config.directionalLightPosition, y: parseFloat(e.target.value) } })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-1 py-1 text-xs font-mono focus:outline-none focus:border-zinc-600 disabled:opacity-50"
+                    />
+                    <input 
+                      type="number" step="0.5"
+                      value={scene.config.directionalLightPosition?.z ?? 10}
+                      onChange={e => useStore.getState().updateSceneConfig({ directionalLightPosition: { ...scene.config.directionalLightPosition, z: parseFloat(e.target.value) } })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-1 py-1 text-xs font-mono focus:outline-none focus:border-zinc-600 disabled:opacity-50"
+                    />
+                  </div>
+                </div>
              </div>
 
              <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mt-6">Environment</div>
@@ -210,7 +233,7 @@ export function Hierarchy() {
                   </button>
                   <button 
                     onClick={() => {
-                      const url = prompt('3D Model URL (.glb):');
+                      const url = prompt('3D Model URL (.glb, .obj):');
                       if (url) addAsset({ name: 'New Model', type: 'model', url });
                     }} 
                     className="hover:text-white text-zinc-400"

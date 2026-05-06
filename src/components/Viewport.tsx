@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -151,6 +152,13 @@ export function Viewport() {
     if (dirLightRef.current) {
       dirLightRef.current.color.set(sceneConfig.directionalLightColor);
       dirLightRef.current.intensity = sceneConfig.directionalLightIntensity;
+      if (sceneConfig.directionalLightPosition) {
+         dirLightRef.current.position.set(
+            sceneConfig.directionalLightPosition.x ?? 10,
+            sceneConfig.directionalLightPosition.y ?? 20,
+            sceneConfig.directionalLightPosition.z ?? 10
+         );
+      }
     }
     
     if (sceneConfig.skyboxUrl) {
@@ -313,15 +321,27 @@ export function Viewport() {
       } else if (asset.type === 'model' && !modelCache.current[asset.id]) {
          anyLoading = true;
          setLoadingAssets(prev => ({ ...prev, [asset.id]: { loaded: 0, total: 1 } }));
-         const loader = new GLTFLoader();
-         loader.load(asset.url, 
-           (gltf) => {
-             modelCache.current[asset.id] = gltf.scene;
-             finishLoading(asset.id);
-           },
-           (xhr) => updateLoading(asset.id, xhr.loaded, xhr.total),
-           () => finishLoading(asset.id)
-         );
+         if (asset.url.toLowerCase().endsWith('.obj')) {
+           const loader = new OBJLoader();
+           loader.load(asset.url, 
+             (obj) => {
+               modelCache.current[asset.id] = obj;
+               finishLoading(asset.id);
+             },
+             (xhr) => updateLoading(asset.id, xhr.loaded, xhr.total),
+             () => finishLoading(asset.id)
+           );
+         } else {
+           const loader = new GLTFLoader();
+           loader.load(asset.url, 
+             (gltf) => {
+               modelCache.current[asset.id] = gltf.scene;
+               finishLoading(asset.id);
+             },
+             (xhr) => updateLoading(asset.id, xhr.loaded, xhr.total),
+             () => finishLoading(asset.id)
+           );
+         }
       }
     });
 

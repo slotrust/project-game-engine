@@ -170,7 +170,7 @@ export function Properties() {
                 <option value="plane">Plane</option>
                 <option value="pointLight">Point Light</option>
                 <option value="spotLight">Spot Light</option>
-                <option value="model">3D Model (.glb)</option>
+                <option value="model">3D Model (.glb, .obj)</option>
               </select>
             </div>
 

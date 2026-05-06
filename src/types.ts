@@ -22,6 +22,7 @@ export interface GameObject {
   color: string;
   metalness?: number;
   roughness?: number;
+  textureId?: string;
   lightProps?: {
     intensity: number;
     distance: number;

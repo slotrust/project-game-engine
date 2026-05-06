@@ -90,14 +90,14 @@ export async function executeSceneCommand(
 
   const systemInstruction = `You are an elite, Senior Game Engine Architect and AI Agent (specializing in Unreal Engine 5, Unity, and Roblox). 
 You manipulate a WebGL scene and write advanced gameplay logic using the 'update' script functionality.
-You have access to Google Search. If the user asks for free assets (3D models, textures, or even music/sounds), you MUST search the web to find direct, raw URLs to open-source assets (.glb, .gltf, .hdr, .png, .jpg, .mp3, .wav).
+You can add free placeholder assets (3D models, textures, or even music/sounds) by using known free placeholder asset URLs (.glb, .gltf, .hdr, .png, .jpg, .mp3, .wav).
 
 You MUST respond with a JSON object exactly matching this format:
 {
   "message": "A professional explanation of the actions taken and logic implemented.",
   "commands": [
-    { "type": "addAsset", "data": { "name": "Asset Name", "type": "model|image|hdr|sound", "url": "https://url.to/raw/file.glb" } },
-    { "type": "add", "data": { "name": "...", "geometry": "box|sphere|plane|pointLight|spotLight|model", "modelId": "asset_id_if_model", "position": {"x":0,"y":0,"z":0}, "color": "#ffffff", "script": "" } },
+    { "type": "addAsset", "data": { "id": "my_asset_1", "name": "Asset Name", "type": "model|image|hdr|sound", "url": "https://url.to/raw/file.glb" } },
+    { "type": "add", "data": { "name": "...", "geometry": "box|sphere|plane|pointLight|spotLight|model", "modelId": "my_asset_1", "textureId": "my_asset_1", "position": {"x":0,"y":0,"z":0}, "color": "#ffffff", "script": "" } },
     { "type": "update", "id": "...", "data": { "position": {"x":1,"y":0,"z":0}, "script": "advanced javascript logic..." } },
     { "type": "delete", "id": "..." },
     { "type": "updateConfig", "data": { "ambientLightColor": "#ffffff", "ambientLightIntensity": 1.0, "bloomEnabled": true, "skyboxUrl": "https://..." } }
@@ -111,7 +111,7 @@ You MUST respond with a JSON object exactly matching this format:
 - Please DO NOT hallucinate IDs; only use IDs from the provided sceneState for 'update' or 'delete'.
 - Only respond in valid JSON matching the schema.`;
 
-  const prompt = `Current Scene State:\n${JSON.stringify(sceneState, null, 2)}\n\nUser Request: "${requestText}"\n\nSearch the web if you need to find assets, then generate the JSON actions.`;
+  const prompt = `Current Scene State:\n${JSON.stringify(sceneState, null, 2)}\n\nUser Request: "${requestText}"\n\nGenerate the JSON actions.`;
 
   const aiClient = getAI();
   const response = await aiClient.models.generateContent({
@@ -120,14 +120,20 @@ You MUST respond with a JSON object exactly matching this format:
     config: {
       systemInstruction,
       responseMimeType: 'application/json',
-      tools: [{ googleSearch: {} }]
     }
   });
 
-  const text = response.text || '{}';
+  let text = response.text || '{}';
+  if (text.startsWith('```json')) {
+    text = text.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+  } else if (text.startsWith('```')) {
+    text = text.replace(/^```\n?/, '').replace(/\n?```$/, '');
+  }
+
   try {
     return JSON.parse(text);
   } catch (e) {
+    console.error("Agent JSON parsing failed", text, e);
     return { message: 'Failed to parse JSON response', commands: [] };
   }
 }

@@ -18,7 +18,7 @@ interface EngineState {
   setMode: (mode: EngineMode) => void;
   addScene: (name: string) => void;
   switchScene: (id: string) => void;
-  addAsset: (asset: Omit<Asset, 'id'>) => void;
+  addAsset: (asset: Omit<Asset, 'id'> & { id?: string }) => void;
   deleteAsset: (id: string) => void;
   
   addObject: (obj: Partial<GameObject>) => void;
@@ -159,7 +159,7 @@ export const useStore = create<EngineState>((set, get) => ({
   })),
 
   addAsset: (asset) => set(state => ({
-    assets: [...state.assets, { id: generateId(), ...asset }]
+    assets: [...state.assets, { id: asset.id || generateId(), name: asset.name, type: asset.type, url: asset.url }]
   })),
 
   deleteAsset: (id) => set(state => ({

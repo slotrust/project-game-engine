@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import Editor from '@monaco-editor/react';
+import { Save } from 'lucide-react';
 
 function AnimationTimelineScrubber({ objId }: { objId: string }) {
    const [progress, setProgress] = useState(0);
@@ -47,7 +48,7 @@ function AnimationTimelineScrubber({ objId }: { objId: string }) {
 }
 
 export function Properties() {
-  const { selectedId, updateObject, mode, assets } = useStore();
+  const { selectedId, updateObject, createPrefab, mode, assets } = useStore();
   const objects = useStore(s => s.scenes.find(sc => sc.id === s.activeSceneId)?.objects || []);
   const selectedObj = objects.find(o => o.id === selectedId);
 
@@ -74,8 +75,19 @@ export function Properties() {
 
   return (
     <div className="w-80 border-l border-zinc-800 bg-zinc-950 flex flex-col h-full font-sans text-sm text-zinc-300">
-      <div className="h-10 px-4 border-b border-zinc-800 flex items-center text-xs font-semibold tracking-wider text-zinc-400 uppercase">
-        Properties {isPlayMode && <span className="ml-2 text-yellow-500 normal-case">(Read-Only)</span>}
+      <div className="h-10 px-4 border-b border-zinc-800 flex items-center justify-between text-xs font-semibold tracking-wider text-zinc-400 uppercase">
+        <div>
+           Properties {isPlayMode && <span className="ml-2 text-yellow-500 normal-case">(Read-Only)</span>}
+        </div>
+        {!isPlayMode && (
+          <button 
+             onClick={() => createPrefab(selectedObj.id)} 
+             className="text-zinc-500 hover:text-[#00FF00] flex items-center gap-1 normal-case"
+             title="Save as Prefab"
+          >
+             <Save className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -221,6 +233,49 @@ export function Properties() {
               </select>
             </div>
 
+            {['box', 'sphere', 'plane', 'model', 'group'].includes(selectedObj.geometry) && (
+              <div className="space-y-2 border-t border-zinc-800 pt-3 mt-3">
+                <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">PBR Material</div>
+                
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-zinc-500 w-20">Base Color</span>
+                  <input 
+                    type="color" 
+                    value={selectedObj.color}
+                    onChange={e => handleChange('color', e.target.value)}
+                    disabled={isPlayMode}
+                    className="w-full h-8 bg-zinc-900 border border-zinc-800 rounded cursor-pointer disabled:opacity-50"
+                  />
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-zinc-500 w-20">Metallic</span>
+                  <input
+                    type="range"
+                    min="0" max="1" step="0.01"
+                    value={selectedObj.metalness ?? 0}
+                    onChange={e => handleChange('metalness', parseFloat(e.target.value))}
+                    disabled={isPlayMode}
+                    className="w-full accent-zinc-500"
+                  />
+                  <span className="text-xs text-zinc-400 w-8">{Number(selectedObj.metalness ?? 0).toFixed(2)}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-zinc-500 w-20">Roughness</span>
+                  <input
+                    type="range"
+                    min="0" max="1" step="0.01"
+                    value={selectedObj.roughness ?? 0.5}
+                    onChange={e => handleChange('roughness', parseFloat(e.target.value))}
+                    disabled={isPlayMode}
+                    className="w-full accent-zinc-500"
+                  />
+                  <span className="text-xs text-zinc-400 w-8">{Number(selectedObj.roughness ?? 0.5).toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+
             {selectedObj.geometry === 'particles' && (
               <div className="space-y-2 border-t border-zinc-800 pt-3 mt-3">
                 <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Particles</div>
@@ -292,6 +347,15 @@ export function Properties() {
                     onChange={e => handleChange('animationSpeed', parseFloat(e.target.value))}
                     className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-zinc-600"
                   />
+                </div>
+                <div className="pt-2 pb-1">
+                   <button 
+                     onClick={() => useStore.getState().setShowAnimationEditor(true)}
+                     className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white"
+                     disabled={isPlayMode}
+                   >
+                     Open Animation Graph Editor
+                   </button>
                 </div>
                 <div className="flex space-x-2 pt-1">
                    <button 

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { GameObject } from '../types';
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -12,9 +11,11 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { Move, RotateCw, Scaling } from 'lucide-react';
+import { GameEngine } from '../engine/GameEngine';
 
 // Track input state globally
 const inputState = { keys: {} as Record<string, boolean> };
+
 
 window.addEventListener('keydown', e => { inputState.keys[e.code] = true; });
 window.addEventListener('keyup', e => { inputState.keys[e.code] = false; });
@@ -45,10 +46,10 @@ export function Viewport() {
   const isDraggingGizmo = useRef(false);
   
   const objectMeshesRef = useRef<Record<string, THREE.Object3D>>({});
-  const physicsWorldRef = useRef<CANNON.World | null>(null);
-  const physicsBodiesRef = useRef<Record<string, CANNON.Body>>({});
+
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+  const shouldStepRef = useRef<boolean>(false);
   
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   
@@ -281,76 +282,25 @@ export function Viewport() {
     return () => observer.disconnect();
   }, []);
 
+  const engineRef = useRef<GameEngine | null>(null);
+
   // Set up play mode initialization
-  const playStateRef = useRef<{ objects: GameObject[] }>({ objects: [] });
   useEffect(() => {
-    if (mode === 'play') {
-      playStateRef.current.objects = JSON.parse(JSON.stringify(objects));
+    if (mode === 'play' && containerRef.current) {
+      if (!engineRef.current) {
+        engineRef.current = new GameEngine();
+      }
       
-      const world = new CANNON.World({
-        gravity: new CANNON.Vec3(0, -9.81, 0),
-      });
-      physicsWorldRef.current = world;
-      physicsBodiesRef.current = {};
+      const setupEngine = async () => {
+        if (!engineRef.current) return;
+        await engineRef.current.init(containerRef.current!);
+        const currentObjects = JSON.parse(JSON.stringify(objects));
+        engineRef.current.loadScene(currentObjects);
+        engineRef.current.start();
+      };
       
-      const defaultPhysMat = new CANNON.Material('default');
-      const defaultContactMat = new CANNON.ContactMaterial(defaultPhysMat, defaultPhysMat, {
-         friction: 0.3,
-         restitution: 0.3
-      });
-      world.addContactMaterial(defaultContactMat);
+      setupEngine();
 
-      playStateRef.current.objects.forEach(obj => {
-        if (obj.physics?.enabled) {
-            const isStatic = obj.physics.isStatic;
-            const mass = isStatic ? 0 : (obj.physics.mass || 1);
-            
-            const shapeType = obj.physics.colliderType || 'box';
-            let shape: CANNON.Shape;
-            if (shapeType === 'sphere') {
-                shape = new CANNON.Sphere(obj.scale.x / 2);
-            } else {
-                shape = new CANNON.Box(new CANNON.Vec3(obj.scale.x / 2, obj.scale.y / 2, obj.scale.z / 2));
-            }
-            
-            const mat = new CANNON.Material();
-            if (obj.physics.bounciness !== undefined) {
-               world.addContactMaterial(new CANNON.ContactMaterial(defaultPhysMat, mat, {
-                   friction: 0.3,
-                   restitution: obj.physics.bounciness
-               }));
-            }
-            
-            const body = new CANNON.Body({
-                mass: mass,
-                type: isStatic ? CANNON.Body.STATIC : CANNON.Body.DYNAMIC,
-                position: new CANNON.Vec3(obj.position.x, obj.position.y, obj.position.z),
-                material: mat
-            });
-            
-            if (!isStatic && obj.physics.velocity) {
-                body.velocity.set(obj.physics.velocity.x, obj.physics.velocity.y, obj.physics.velocity.z);
-            }
-            
-            const euler = new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z, 'XYZ');
-            const q = new THREE.Quaternion().setFromEuler(euler);
-            body.quaternion.set(q.x, q.y, q.z, q.w);
-            
-            world.addBody(body);
-            physicsBodiesRef.current[obj.id] = body;
-        }
-
-        try {
-          const scriptBody = obj.script.replace(/function\s+update\s*\([^{]*\)\s*\{/, '').replace(/\}\s*$/, '');
-          // @ts-ignore
-          obj._compiledScript = new Function('gameObject', 'input', 'window', 'deltaTime', scriptBody);
-        } catch (e) {
-          console.error(`Failed to compile script for ${obj.name}:`, e);
-          // @ts-ignore
-          obj._compiledScript = () => {}; 
-        }
-      });
-      
       lastTimeRef.current = performance.now();
       fpsAcc.current = { frames: 0, lastTime: performance.now() };
       gameTimeRef.current = 0;
@@ -361,12 +311,17 @@ export function Viewport() {
         transformControlsRef.current.detach();
       }
     } else {
-       // Returning to edit mode, reattach if needed
-       if (selectedId && transformControlsRef.current && objectMeshesRef.current[selectedId]) {
-         transformControlsRef.current.attach(objectMeshesRef.current[selectedId]);
-       }
+      if (engineRef.current) {
+        engineRef.current.dispose();
+        engineRef.current = null;
+      }
+      // Returning to edit mode, reattach if needed
+      if (selectedId && transformControlsRef.current && objectMeshesRef.current[selectedId]) {
+        transformControlsRef.current.attach(objectMeshesRef.current[selectedId]);
+      }
     }
-  }, [mode, objects, selectedId]);
+  }, [mode]);
+
 
   // Load requested assets ahead of time generally
   useEffect(() => {
@@ -530,10 +485,26 @@ export function Viewport() {
              animationActionsRef.current[obj.id] = actions;
              
              // Play default or first if obj.animation not set yet
-             if (obj.animation && actions[obj.animation]) {
-               actions[obj.animation].play();
-             } else if (originalModel.userData.animations.length > 0) {
-               actions[originalModel.userData.animations[0].name].play();
+             const playbackRate = obj.animation?.playbackRate ?? 1;
+             
+             if (engineRef.current && mode === 'play') {
+                engineRef.current.animation.registerObject(
+                  obj.id,
+                  modelGroup,
+                  originalModel.userData.animations,
+                  obj.animation?.graph,
+                  obj.animation?.defaultClip
+                );
+             } else {
+                 // Simple editor playback
+                 let animToPlay = typeof obj.animation === 'string' ? obj.animation : obj.animation?.defaultClip;
+                 if (animToPlay && actions[animToPlay]) {
+                   actions[animToPlay].setEffectiveTimeScale(playbackRate);
+                   actions[animToPlay].play();
+                 } else if (originalModel.userData.animations.length > 0) {
+                   actions[originalModel.userData.animations[0].name].setEffectiveTimeScale(playbackRate);
+                   actions[originalModel.userData.animations[0].name].play();
+                 }
              }
           }
         } else if (obj.geometry === 'pointLight') {
@@ -619,11 +590,11 @@ export function Viewport() {
           else if (obj.geometry === 'plane') geometry = new THREE.PlaneGeometry(1, 1);
           else geometry = new THREE.BoxGeometry(1, 1, 1);
           
-          const material = new THREE.MeshStandardMaterial({ 
+          const material = new THREE.MeshPhysicalMaterial({ 
             color: (obj.textureId || obj.spriteId) ? 0xffffff : obj.color,
             map: (obj.textureId || obj.spriteId) ? textureCache.current[obj.textureId || obj.spriteId!] || null : null,
             metalness: obj.metalness ?? 0,
-            roughness: obj.roughness ?? 1,
+            roughness: obj.roughness ?? 0.5,
           });
           
           const mesh = new THREE.Mesh(geometry, material);
@@ -763,6 +734,14 @@ export function Viewport() {
 
   // Game/Render Loop
   useEffect(() => {
+    let playTargetMode = mode;
+    const handleStep = () => {
+        if (playTargetMode === 'pause') {
+            shouldStepRef.current = true;
+        }
+    };
+    window.addEventListener('engine-step-frame', handleStep);
+
     const loop = (time: number) => {
       requestRef.current = requestAnimationFrame(loop);
       
@@ -773,7 +752,9 @@ export function Viewport() {
       if (controlsRef.current) controlsRef.current.update();
 
       // Update animations
-      Object.values(mixersRef.current).forEach(mixer => mixer.update(deltaTime));
+      if (mode !== 'play') {
+          Object.values(mixersRef.current).forEach(mixer => mixer.update(deltaTime));
+      }
 
       // Get current state
       const currentStoreState = useStore.getState();
@@ -796,6 +777,8 @@ export function Viewport() {
          }
       }
 
+      const isExecutingPlayLogic = mode === 'play' || (mode === 'pause' && shouldStepRef.current);
+      
       // Update particles
       currentObjects.forEach(obj => {
          if (obj.geometry === 'particles') {
@@ -806,7 +789,7 @@ export function Viewport() {
                if (posAttr && velAttr) {
                   const positions = posAttr.array;
                   const velocities = velAttr.array;
-                  const speedMultiplier = (mode === 'play') ? 1 : 0.2;
+                  const speedMultiplier = isExecutingPlayLogic ? 1 : 0.2;
                   const spread = obj.particles?.spread ?? 5;
                   for (let i = 0; i < positions.length; i+=3) {
                      positions[i] += velocities[i] * deltaTime * speedMultiplier;
@@ -823,7 +806,8 @@ export function Viewport() {
          }
       });
 
-      if (mode === 'play') {
+      if (isExecutingPlayLogic) {
+        if (shouldStepRef.current) deltaTime = 1/60; // Fixed timestep for manual step
         gameTimeRef.current += deltaTime;
         fpsAcc.current.frames++;
         if (time - fpsAcc.current.lastTime >= 1000) {
@@ -842,41 +826,29 @@ export function Viewport() {
         }
         (inputState as any).actions = mappedActions;
 
-        if (physicsWorldRef.current) {
-            physicsWorldRef.current.step(1/60, deltaTime, 3);
+        // GameEngine sync
+        if (engineRef.current) {
+          engineRef.current.update(deltaTime);
+          const transforms = engineRef.current.getVisualTransforms();
+          
+          for (const [id, t] of Object.entries(transforms)) {
+              const mesh = objectMeshesRef.current[id];
+              if (mesh) {
+                mesh.position.set(t.position.x, t.position.y, t.position.z);
+                const q = new THREE.Quaternion(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
+                mesh.quaternion.copy(q);
+              }
+          }
+
+          // Sync Camera
+          const mainCamTrans = engineRef.current.getMainCameraTransform();
+          if (mainCamTrans && cameraRef.current) {
+             cameraRef.current.position.set(mainCamTrans.position.x, mainCamTrans.position.y, mainCamTrans.position.z);
+             const q = new THREE.Quaternion(mainCamTrans.rotation.x, mainCamTrans.rotation.y, mainCamTrans.rotation.z, mainCamTrans.rotation.w);
+             cameraRef.current.quaternion.copy(q);
+          }
         }
 
-        // Apply Physics & Logic
-        playStateRef.current.objects.forEach(obj => {
-          const body = physicsBodiesRef.current[obj.id];
-          if (body && obj.physics?.enabled && !obj.physics.isStatic) {
-             obj.position.x = body.position.x;
-             obj.position.y = body.position.y;
-             obj.position.z = body.position.z;
-             
-             const threeQuat = new THREE.Quaternion(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
-             const threeEuler = new THREE.Euler().setFromQuaternion(threeQuat);
-             obj.rotation.x = threeEuler.x;
-             obj.rotation.y = threeEuler.y;
-             obj.rotation.z = threeEuler.z;
-          }
-
-          // Exec script
-          try {
-            // @ts-ignore
-            if (obj._compiledScript) {
-              // @ts-ignore
-              obj._compiledScript(obj, inputState, dimensions, deltaTime);
-            }
-          } catch (e) {}
-          
-          // Apply back to mesh
-          const mesh = objectMeshesRef.current[obj.id];
-          if (mesh) {
-            mesh.position.set(obj.position.x, obj.position.y, obj.position.z);
-            mesh.rotation.set(obj.rotation.x, obj.rotation.y, obj.rotation.z);
-          }
-        });
       }
 
       // Update Debug Physics Colliders
@@ -906,6 +878,10 @@ export function Viewport() {
          physicsHelpersRef.current = {};
       }
 
+      if (isExecutingPlayLogic) {
+          shouldStepRef.current = false;
+      }
+
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         if (composerRef.current) {
           composerRef.current.render();
@@ -916,7 +892,10 @@ export function Viewport() {
     };
     
     requestRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(requestRef.current!);
+    return () => {
+        cancelAnimationFrame(requestRef.current!);
+        window.removeEventListener('engine-step-frame', handleStep);
+    }
   }, [mode, dimensions]);
 
   // Edit Mode Interaction
@@ -956,11 +935,88 @@ export function Viewport() {
     }
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    if (mode === 'edit') {
+      e.preventDefault();
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (mode !== 'edit' || !cameraRef.current || !rendererRef.current) return;
+    try {
+      const prefabStr = e.dataTransfer.getData('engine-prefab');
+      const modelStr = e.dataTransfer.getData('engine-model');
+      
+      let objToAdd: any = null;
+      let isPrefab = false;
+      let prefabNode: any = null;
+
+      if (prefabStr) {
+          const prefabData = JSON.parse(prefabStr);
+          if (prefabData && prefabData.obj) {
+              isPrefab = true;
+              prefabNode = prefabData;
+          }
+      } else if (modelStr) {
+          const modelData = JSON.parse(modelStr);
+          if (modelData) {
+              objToAdd = {
+                  name: modelData.name,
+                  geometry: 'model',
+                  textureId: modelData.id,
+                  position: { x: 0, y: 0, z: 0 },
+                  rotation: { x: 0, y: 0, z: 0 },
+                  scale: { x: 1, y: 1, z: 1 },
+                  color: '#ffffff'
+              };
+          }
+      }
+
+      if (isPrefab || objToAdd) {
+          const rect = rendererRef.current.domElement.getBoundingClientRect();
+          mouse.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          mouse.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+          raycaster.current.setFromCamera(mouse.current, cameraRef.current);
+          
+          // Simple drop intersection with Z=0 plane
+          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+          const target = new THREE.Vector3();
+          raycaster.current.ray.intersectPlane(plane, target);
+          
+          if (target) {
+              const { addObject } = useStore.getState();
+              
+              if (isPrefab) {
+                  const addHierarchy = (node: any, parentId?: string) => {
+                      const newId = Math.random().toString(36).substring(2, 9);
+                      const clonedObj = { ...node.obj, id: newId, parentId };
+                      if (!parentId) {
+                          clonedObj.position = { x: target.x, y: target.y, z: target.z };
+                      }
+                      addObject(clonedObj);
+                      if (node.children && node.children.length > 0) {
+                          node.children.forEach((child: any) => addHierarchy(child, newId));
+                      }
+                  };
+                  addHierarchy(prefabNode);
+              } else {
+                  objToAdd.position = { x: target.x, y: target.y, z: target.z };
+                  addObject(objToAdd);
+              }
+          }
+      }
+    } catch(e) {
+      console.error("Failed to drop prefab", e);
+    }
+  };
+
   return (
     <div 
       className="flex-1 w-full bg-zinc-900 overflow-hidden relative cursor-crosshair"
       ref={containerRef}
       onPointerDown={handlePointerDown}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       {mode === 'edit' && (
         <div className="absolute top-4 left-4 bg-zinc-950/80 backdrop-blur text-zinc-400 text-xs px-3 py-1.5 border border-zinc-800 rounded shadow-md pointer-events-none flex flex-col gap-1">
@@ -1017,6 +1073,18 @@ export function Viewport() {
               <span className="text-zinc-500 text-[10px] uppercase">Time</span>
               <span>{gameTime.toFixed(1)}s</span>
             </div>
+            {rendererRef.current && (
+              <>
+                <div className="flex flex-col border-l border-zinc-700 pl-3">
+                  <span className="text-zinc-500 text-[10px] uppercase">Draw Calls</span>
+                  <span className="text-amber-400">{rendererRef.current.info.render.calls}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-zinc-500 text-[10px] uppercase">Tris</span>
+                  <span className="text-cyan-400">{(rendererRef.current.info.render.triangles / 1000).toFixed(1)}k</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

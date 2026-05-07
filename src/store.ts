@@ -21,6 +21,7 @@ interface EngineState {
   switchScene: (id: string) => void;
   addAsset: (asset: Omit<Asset, 'id'> & { id?: string }) => void;
   deleteAsset: (id: string) => void;
+  createPrefab: (objectId: string) => void;
   
   addObject: (obj: Partial<GameObject>) => void;
   updateObject: (id: string, updates: Partial<GameObject>) => void;
@@ -35,6 +36,12 @@ interface EngineState {
   redo: () => void;
 
   getObjects: () => GameObject[];
+
+  // View States
+  bottomTab: 'content' | 'console' | 'animation';
+  setBottomTab: (t: 'content' | 'console' | 'animation') => void;
+  showAnimationEditor: boolean;
+  setShowAnimationEditor: (v: boolean) => void;
 
   snapEnabled: boolean;
   snapTranslation: number;
@@ -77,18 +84,55 @@ export const useStore = create<EngineState>((set, get) => ({
           name: 'Player',
           position: { x: 0, y: 1, z: 0 },
           rotation: { x: 0, y: 0, z: 0 },
-          scale: { x: 1, y: 1, z: 1 },
-          geometry: 'box',
-          color: '#34d399',
-          physics: { ...DEFAULT_PHYSICS },
-          script: `function update(gameObject, input, window, deltaTime) {
-  const speed = 5;
-  if (input.keys['ArrowRight'] || input.keys['KeyD']) gameObject.position.x += speed * deltaTime;
-  if (input.keys['ArrowLeft'] || input.keys['KeyA']) gameObject.position.x -= speed * deltaTime;
-  if (input.keys['ArrowUp'] || input.keys['KeyW']) gameObject.position.z -= speed * deltaTime;
-  if (input.keys['ArrowDown'] || input.keys['KeyS']) gameObject.position.z += speed * deltaTime;
-  if (input.keys['Space']) gameObject.position.y += speed * deltaTime;
-}`
+          scale: { x: 0.5, y: 0.5, z: 0.5 },
+          geometry: 'model',
+          modelId: 'robot-model',
+          color: '#ffffff',
+          animation: {
+            enabled: true,
+            playbackRate: 1,
+            defaultClip: 'Idle',
+            graph: {
+              parameters: { isRunning: false },
+              initialStateId: 's1',
+              states: [
+                { id: 's1', name: 'Idle', type: 'clip', clipName: 'Idle', speed: 1, loop: true, rootMotion: false, position: { x: 100, y: 150 } },
+                { id: 's2', name: 'Run', type: 'clip', clipName: 'Running', speed: 1, loop: true, rootMotion: false, position: { x: 300, y: 150 } },
+              ],
+              transitions: [
+                { id: 't1', fromStateId: 's1', toStateId: 's2', condition: 'params.isRunning === true', duration: 0.2 },
+                { id: 't2', fromStateId: 's2', toStateId: 's1', condition: 'params.isRunning === false', duration: 0.2 },
+              ]
+            }
+          },
+          physics: { ...DEFAULT_PHYSICS, colliderType: 'capsule', mass: 1 },
+          script: `function update(dt)
+  local speed = 8
+  local vel = Engine.getLinearVelocity(self.getId())
+  local vx, vy, vz = vel.x, vel.y, vel.z
+  
+  local moving = false
+
+  if Engine.isActionPressed('Move Right') then vx = speed moving = true end
+  if Engine.isActionPressed('Move Left') then vx = -speed moving = true end
+  if Engine.isActionPressed('Move Forward') then vz = -speed moving = true end
+  if Engine.isActionPressed('Move Back') then vz = speed moving = true end
+  
+  if not (Engine.isActionPressed('Move Right') or Engine.isActionPressed('Move Left')) then
+    vx = 0
+  end
+  if not (Engine.isActionPressed('Move Forward') or Engine.isActionPressed('Move Back')) then
+    vz = 0
+  end
+
+  Engine.setAnimParam(self.getId(), "isRunning", moving)
+
+  if Engine.isActionPressed('Jump') and vy < 0.1 and vy > -0.1 then 
+    vy = 5 
+  end
+  
+  Engine.setLinearVelocity(self.getId(), vx, vy, vz)
+end`
         },
         {
           id: generateId(),
@@ -105,10 +149,22 @@ export const useStore = create<EngineState>((set, get) => ({
     }
   ],
   activeSceneId: initialSceneId,
-  assets: [{ id: generateId(), name: 'Coin', type: 'image', url: 'https://cdn.pixabay.com/photo/2013/07/12/15/36/coin-150143_960_720.png' }],
+  assets: [
+    { id: generateId(), name: 'Coin', type: 'image', url: 'https://cdn.pixabay.com/photo/2013/07/12/15/36/coin-150143_960_720.png' },
+    { id: 'robot-model', name: 'Robot', type: 'model', url: 'https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb' }
+  ],
   selectedId: null,
   selectedIds: [],
   
+  bottomTab: 'content',
+  setBottomTab: (t) => set({ bottomTab: t }),
+  
+  showAnimationEditor: false,
+  setShowAnimationEditor: (v) => set({ 
+     showAnimationEditor: v,
+     bottomTab: v ? ('animation' as any) : 'content'
+  }),
+
   snapEnabled: false,
   snapTranslation: 1,
   snapRotation: Math.PI / 4,
@@ -192,12 +248,37 @@ export const useStore = create<EngineState>((set, get) => ({
   })),
 
   addAsset: (asset) => set(state => ({
-    assets: [...state.assets, { id: asset.id || generateId(), name: asset.name, type: asset.type, url: asset.url }]
+    assets: [...state.assets, { id: asset.id || generateId(), name: asset.name, type: asset.type, url: asset.url, data: asset.data }]
   })),
 
   deleteAsset: (id) => set(state => ({
     assets: state.assets.filter(a => a.id !== id)
   })),
+
+  createPrefab: (objectId) => set(state => {
+      const activeScene = state.scenes.find(s => s.id === state.activeSceneId);
+      if (!activeScene) return state;
+
+      const serializeObjectWithChildren = (id: string): any => {
+          const obj = activeScene.objects.find(o => o.id === id);
+          if (!obj) return null;
+          const clonedObj = { ...obj };
+          const children = activeScene.objects.filter(o => o.parentId === obj.id).map(c => serializeObjectWithChildren(c.id));
+          return { obj: clonedObj, children };
+      };
+
+      const prefabData = serializeObjectWithChildren(objectId);
+      if (!prefabData) return state;
+
+      return {
+          assets: [...state.assets, {
+              id: generateId(),
+              name: prefabData.obj.name + ' Prefab',
+              type: 'prefab',
+              data: prefabData
+          }]
+      };
+  }),
 
   addObject: (obj) => {
     get().saveHistory();

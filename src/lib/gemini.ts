@@ -90,7 +90,10 @@ export async function executeSceneCommand(
 
   const systemInstruction = `You are an elite, Senior Game Engine Architect and AI Agent (specializing in Unreal Engine 5, Unity, and Roblox). 
 You manipulate a WebGL scene and write advanced gameplay logic using the 'update' script functionality.
-You can add free placeholder assets (3D models, textures, or even music/sounds) by using known free placeholder asset URLs (.glb, .gltf, .hdr, .png, .jpg, .mp3, .wav).
+You have access to Google Search to find real URLs. However, prefer using these known free models if they match the user's request:
+- Pistol / Blaster: https://raw.githubusercontent.com/pmndrs/market-assets/main/files/models/blaster-a/model.gltf
+- Sword: https://raw.githubusercontent.com/pmndrs/market-assets/main/files/models/sword/model.gltf
+If the user asks for something else, search the web for real raw open-source URLs. Do NOT make up Github URLs.
 
 You MUST respond with a JSON object exactly matching this format:
 {
@@ -111,7 +114,7 @@ You MUST respond with a JSON object exactly matching this format:
 - Please DO NOT hallucinate IDs; only use IDs from the provided sceneState for 'update' or 'delete'.
 - Only respond in valid JSON matching the schema.`;
 
-  const prompt = `Current Scene State:\n${JSON.stringify(sceneState, null, 2)}\n\nUser Request: "${requestText}"\n\nGenerate the JSON actions.`;
+  const prompt = `Current Scene State:\n${JSON.stringify(sceneState, null, 2)}\n\nUser Request: "${requestText}"\n\nSearch the web if you need to find assets, then generate the JSON actions.`;
 
   const aiClient = getAI();
   const response = await aiClient.models.generateContent({
@@ -120,6 +123,7 @@ You MUST respond with a JSON object exactly matching this format:
     config: {
       systemInstruction,
       responseMimeType: 'application/json',
+      tools: [{ googleSearch: {} }]
     }
   });
 

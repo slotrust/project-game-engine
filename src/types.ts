@@ -7,6 +7,7 @@ export interface Vector3 {
 export interface PhysicsProps {
   enabled: boolean;
   isStatic: boolean;
+  colliderType?: 'box' | 'sphere' | 'mesh' | 'hull';
   velocity: Vector3;
   mass: number;
   bounciness: number;
@@ -18,7 +19,20 @@ export interface GameObject {
   position: Vector3;
   rotation: Vector3;
   scale: Vector3;
-  geometry: 'box' | 'sphere' | 'plane' | 'model' | 'pointLight' | 'spotLight';
+  geometry: 'box' | 'sphere' | 'plane' | 'model' | 'pointLight' | 'spotLight' | 'group' | 'particles';
+  parentId?: string;
+  animation?: string;
+  animationSpeed?: number;
+  animationPlaying?: boolean;
+  animationRestart?: number;
+  particles?: {
+    enabled: boolean;
+    color: string;
+    count: number;
+    size: number;
+    speed: number;
+    spread: number;
+  };
   color: string;
   metalness?: number;
   roughness?: number;
@@ -31,6 +45,7 @@ export interface GameObject {
   };
   spriteId?: string;
   modelId?: string;
+  lods?: { distance: number; modelId: string }[];
   script: string;
   physics: PhysicsProps;
 }
@@ -62,6 +77,8 @@ export interface SceneConfig {
   bloomIntensity?: number;
   bloomThreshold?: number;
   bloomRadius?: number;
+  inputMappings?: Record<string, string[]>;
+  showPhysicsColliders?: boolean;
 }
 
 export interface Scene {

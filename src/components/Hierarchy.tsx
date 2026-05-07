@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { Box, Plus, Trash2, Folder, Image as ImageIcon, Music } from 'lucide-react';
 
 export function Hierarchy() {
-  const { mode, selectedId, selectObject, addObject, deleteObject, addAsset, deleteAsset, assets } = useStore();
+  const { mode, selectedIds, selectObject, groupSelected, addObject, deleteObject, addAsset, deleteAsset, assets } = useStore();
   const scene = useStore(s => s.scenes.find(sc => sc.id === s.activeSceneId));
   const objects = scene?.objects || [];
   const [activeTab, setActiveTab] = useState<'hierarchy' | 'assets' | 'scene'>('hierarchy');
@@ -36,21 +36,31 @@ export function Hierarchy() {
           <>
             <div className="flex flex-row justify-between w-full mb-3 pb-1 border-b border-zinc-800">
                <span className="text-zinc-500 text-xs">Scene Objects</span>
-               <button 
-                  onClick={() => addObject({})} 
-                  disabled={mode === 'play'}
-                  className="hover:text-white disabled:opacity-50 text-zinc-400"
-                  title="Add GameObject"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+               <div className="flex space-x-1">
+                 <button 
+                    onClick={groupSelected} 
+                    disabled={mode === 'play' || selectedIds.length < 2}
+                    className="hover:text-white disabled:opacity-50 text-zinc-400"
+                    title="Group Selected (Ctrl+G)"
+                  >
+                    <Folder className="w-4 h-4" />
+                  </button>
+                 <button 
+                    onClick={() => addObject({})} 
+                    disabled={mode === 'play'}
+                    className="hover:text-white disabled:opacity-50 text-zinc-400"
+                    title="Add GameObject"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+               </div>
             </div>
             {objects.map(obj => (
               <div 
                 key={obj.id}
-                onClick={() => selectObject(obj.id)}
+                onClick={(e) => selectObject(obj.id, e.shiftKey || e.ctrlKey || e.metaKey)}
                 className={`group flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
-                  selectedId === obj.id 
+                  selectedIds.includes(obj.id) 
                     ? 'bg-zinc-800 text-white' 
                     : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
                 }`}
@@ -200,6 +210,41 @@ export function Hierarchy() {
                   />
                 </div>
              </div>
+
+             <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mt-6">Input Mappings</div>
+             <div className="space-y-2">
+               {scene.config.inputMappings && Object.entries(scene.config.inputMappings).map(([action, keys]) => (
+                  <div key={action}>
+                    <span className="text-xs text-zinc-500 block mb-1">{action}</span>
+                    <input 
+                      type="text"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs focus:outline-none focus:border-zinc-600"
+                      value={keys.join(', ')}
+                      onChange={(e) => {
+                        const newKeys = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                        useStore.getState().updateSceneConfig({
+                          inputMappings: {
+                            ...scene.config.inputMappings,
+                            [action]: newKeys
+                          }
+                        });
+                      }}
+                      placeholder="e.g. KeyW, ArrowUp"
+                    />
+                  </div>
+               ))}
+             </div>
+
+             <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mt-6">Debug</div>
+             <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400">Show Colliders</span>
+                <input 
+                  type="checkbox"
+                  checked={scene.config.showPhysicsColliders ?? false}
+                  onChange={(e) => useStore.getState().updateSceneConfig({ showPhysicsColliders: e.target.checked })}
+                  className="rounded bg-zinc-900 border-zinc-700"
+                />
+             </div>
           </div>
         )}
 
@@ -249,8 +294,9 @@ export function Hierarchy() {
                   {asset.type === 'image' || asset.type === 'hdr' ? (
                     <img src={asset.url} alt={asset.name} className="w-12 h-12 object-contain bg-zinc-950 rounded" />
                   ) : asset.type === 'model' ? (
-                    <div className="w-12 h-12 flex items-center justify-center bg-zinc-950 rounded">
-                      <Box className="w-6 h-6 text-zinc-500" />
+                    <div className="w-12 h-12 flex items-center justify-center bg-zinc-950 rounded overflow-hidden">
+                      {/* @ts-ignore */}
+                      <model-viewer src={asset.url} alt={asset.name} style={{ width: '48px', height: '48px', backgroundColor: 'transparent' }} camera-controls auto-rotate></model-viewer>
                     </div>
                   ) : (
                     <div className="w-12 h-12 flex items-center justify-center bg-zinc-950 rounded">

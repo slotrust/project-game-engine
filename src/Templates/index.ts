@@ -1,0 +1,2 @@
+// Templates placeholder
+export {};

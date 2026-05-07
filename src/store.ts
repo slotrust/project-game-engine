@@ -9,6 +9,7 @@ interface EngineState {
   activeSceneId: string;
   assets: Asset[];
   selectedId: string | null;
+  selectedIds: string[];
 
   // History tracking (for the active scene's objects)
   past: GameObject[][];
@@ -25,7 +26,8 @@ interface EngineState {
   updateObject: (id: string, updates: Partial<GameObject>) => void;
   updateSceneConfig: (updates: Partial<SceneConfig>) => void;
   deleteObject: (id: string) => void;
-  selectObject: (id: string | null) => void;
+  selectObject: (id: string | null, multi?: boolean) => void;
+  groupSelected: () => void;
 
   // Undo / Redo
   saveHistory: () => void;
@@ -33,6 +35,15 @@ interface EngineState {
   redo: () => void;
 
   getObjects: () => GameObject[];
+
+  snapEnabled: boolean;
+  snapTranslation: number;
+  snapRotation: number;
+  snapScale: number;
+  setSnapEnabled: (v: boolean) => void;
+  setSnapTranslation: (v: number) => void;
+  setSnapRotation: (v: number) => void;
+  setSnapScale: (v: number) => void;
 }
 
 const initialSceneId = generateId();
@@ -43,6 +54,14 @@ const DEFAULT_SCENE_CONFIG = {
   directionalLightColor: '#ffffff',
   directionalLightIntensity: 0.8,
   directionalLightPosition: { x: 10, y: 20, z: 10 },
+  inputMappings: {
+    'Move Forward': ['KeyW', 'ArrowUp'],
+    'Move Back': ['KeyS', 'ArrowDown'],
+    'Move Left': ['KeyA', 'ArrowLeft'],
+    'Move Right': ['KeyD', 'ArrowRight'],
+    'Jump': ['Space'],
+    'Action': ['Enter', 'KeyE']
+  }
 };
 
 export const useStore = create<EngineState>((set, get) => ({
@@ -88,6 +107,16 @@ export const useStore = create<EngineState>((set, get) => ({
   activeSceneId: initialSceneId,
   assets: [{ id: generateId(), name: 'Coin', type: 'image', url: 'https://cdn.pixabay.com/photo/2013/07/12/15/36/coin-150143_960_720.png' }],
   selectedId: null,
+  selectedIds: [],
+  
+  snapEnabled: false,
+  snapTranslation: 1,
+  snapRotation: Math.PI / 4,
+  snapScale: 1,
+  setSnapEnabled: (v) => set({ snapEnabled: v }),
+  setSnapTranslation: (v) => set({ snapTranslation: v }),
+  setSnapRotation: (v) => set({ snapRotation: v }),
+  setSnapScale: (v) => set({ snapScale: v }),
 
   past: [],
   future: [],
@@ -120,7 +149,8 @@ export const useStore = create<EngineState>((set, get) => ({
       scenes: state.scenes.map(sc => 
         sc.id === state.activeSceneId ? { ...sc, objects: previousObjects } : sc
       ),
-      selectedId: null
+      selectedId: null,
+      selectedIds: []
     };
   }),
 
@@ -136,7 +166,8 @@ export const useStore = create<EngineState>((set, get) => ({
       scenes: state.scenes.map(sc => 
         sc.id === state.activeSceneId ? { ...sc, objects: nextObjects } : sc
       ),
-      selectedId: null
+      selectedId: null,
+      selectedIds: []
     };
   }),
 
@@ -147,13 +178,15 @@ export const useStore = create<EngineState>((set, get) => ({
       activeSceneId: newSceneId,
       past: [],
       future: [],
-      selectedId: null
+      selectedId: null,
+      selectedIds: []
     };
   }),
 
   switchScene: (id) => set(state => ({
     activeSceneId: id,
     selectedId: null,
+    selectedIds: [],
     past: [],
     future: []
   })),
@@ -186,7 +219,11 @@ export const useStore = create<EngineState>((set, get) => ({
         sc.id === state.activeSceneId ? { ...sc, objects: [...sc.objects, newObj] } : sc
       );
       
-      return { scenes: updatedScenes, selectedId: newObj.id };
+      return { 
+        scenes: updatedScenes, 
+        selectedId: newObj.id,
+        selectedIds: [newObj.id]
+      };
     });
   },
 
@@ -224,10 +261,64 @@ export const useStore = create<EngineState>((set, get) => ({
       });
       return {
         scenes: updatedScenes,
-        selectedId: state.selectedId === id ? null : state.selectedId
+        selectedId: state.selectedId === id ? null : state.selectedId,
+        selectedIds: state.selectedIds.filter(selected => selected !== id)
       };
     });
   },
 
-  selectObject: (id) => set({ selectedId: id })
+  selectObject: (id, multi = false) => set(state => {
+    if (!id) return { selectedId: null, selectedIds: [] };
+    if (multi) {
+      const isSelected = state.selectedIds.includes(id);
+      const newIds = isSelected ? state.selectedIds.filter(x => x !== id) : [...state.selectedIds, id];
+      return {
+        selectedIds: newIds,
+        selectedId: newIds.length > 0 ? newIds[newIds.length - 1] : null
+      };
+    }
+    return { selectedId: id, selectedIds: [id] };
+  }),
+
+  groupSelected: () => {
+    get().saveHistory();
+    set(state => {
+      const { selectedIds, activeSceneId, scenes } = state;
+      if (selectedIds.length < 2) return state; // Need at least 2 objects to group
+      
+      const scene = scenes.find(s => s.id === activeSceneId);
+      if (!scene) return state;
+
+      const groupObj: GameObject = {
+        id: generateId(),
+        name: 'Group',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        geometry: 'group',
+        color: '#ffffff',
+        script: DEFAULT_SCRIPT,
+        physics: { ...DEFAULT_PHYSICS }
+      };
+
+      const updatedObjects = scene.objects.map(o => {
+        if (selectedIds.includes(o.id)) {
+          return { ...o, parentId: groupObj.id };
+        }
+        return o;
+      });
+
+      const updatedScenes = scenes.map(s => 
+        s.id === activeSceneId 
+          ? { ...s, objects: [...updatedObjects, groupObj] } 
+          : s
+      );
+
+      return {
+        scenes: updatedScenes,
+        selectedId: groupObj.id,
+        selectedIds: [groupObj.id]
+      };
+    });
+  }
 }));

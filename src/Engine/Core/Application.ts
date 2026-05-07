@@ -2,6 +2,10 @@ import { EventDispatcher } from './EventDispatcher';
 import { Logger } from './Logger';
 import { Time } from './Time';
 import { Registry } from './ECS';
+import { Input } from './Input';
+import { LayerStack } from './LayerStack';
+import { Layer } from './Layer';
+import { JobSystem } from './JobSystem';
 
 export interface ApplicationOptions {
   name: string;
@@ -15,6 +19,7 @@ export class Application {
   private _isRunning: boolean = false;
   private _eventDispatcher: EventDispatcher;
   private _registry: Registry;
+  private _layerStack: LayerStack;
   private _animationFrameId: number = 0;
 
   constructor(options: ApplicationOptions) {
@@ -28,6 +33,10 @@ export class Application {
     
     this._eventDispatcher = new EventDispatcher();
     this._registry = new Registry();
+    this._layerStack = new LayerStack();
+    
+    Input.init();
+    JobSystem.init();
   }
 
   public static get(): Application {
@@ -40,6 +49,14 @@ export class Application {
 
   public get registry(): Registry {
     return this._registry;
+  }
+
+  public pushLayer(layer: Layer) {
+    this._layerStack.pushLayer(layer);
+  }
+
+  public pushOverlay(overlay: Layer) {
+    this._layerStack.pushOverlay(overlay);
   }
 
   public start() {
@@ -60,9 +77,13 @@ export class Application {
 
     Time.tick();
     
-    // Engine pre-update, update, post-update phases would go here
+    for (const layer of this._layerStack.getLayers()) {
+      layer.onUpdate(Time.deltaTime);
+    }
+    
     this._registry.updateSystems(Time.deltaTime);
 
     this._animationFrameId = requestAnimationFrame(this.run);
   }
 }
+
